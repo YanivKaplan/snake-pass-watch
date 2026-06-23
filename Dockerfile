@@ -26,5 +26,15 @@ COPY backend/app ./app
 # SPA shell + assets land in /app/static, which app.main serves (see STATIC_DIR).
 COPY --from=frontend-builder /frontend/dist/client ./static
 ENV PATH="/app/.venv/bin:$PATH"
+
+# The store backend is configured entirely from OUTSIDE the image via
+# DATABASE_URL (set at `docker run -e` / compose), so it can be swapped between
+# SQLite and Postgres without rebuilding. DATABASE_URL is intentionally NOT
+# baked in. When it is unset the app would fall back to the in-memory seeded
+# store, so always provide it for real runs (see docker-compose.yml). For
+# SQLite, mount a host directory and point DATABASE_URL at a file under /data:
+#   -e DATABASE_URL=sqlite:////data/snake.db -v ./data:/data
+RUN mkdir -p /data
+
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

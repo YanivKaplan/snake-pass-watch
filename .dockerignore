@@ -8,5 +8,7 @@
 **/.ruff_cache
 frontend/dist
 backend/*.db
+# Host-mapped runtime data must never enter the build context/image.
+data/
 # Never bake local env/secrets into the image.
 **/.env

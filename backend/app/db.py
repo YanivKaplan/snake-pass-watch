@@ -10,7 +10,7 @@ engine is created only when :func:`make_engine` is called (i.e. when a
 ``DATABASE_URL`` is configured).
 """
 
-from sqlalchemy import JSON, Boolean, Integer, String, create_engine
+from sqlalchemy import JSON, BigInteger, Boolean, Integer, String, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -45,7 +45,9 @@ class ScoreTable(Base):
     username: Mapped[str] = mapped_column(String, nullable=False)
     mode: Mapped[str] = mapped_column(String, nullable=False, index=True)
     score: Mapped[int] = mapped_column(Integer, nullable=False)
-    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Millisecond Unix epoch — exceeds 32-bit INTEGER range, so use BigInteger
+    # (Postgres rejects it as int4; SQLite's flexible INTEGER masked this).
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class ActiveGameTable(Base):
@@ -57,7 +59,8 @@ class ActiveGameTable(Base):
     mode: Mapped[str] = mapped_column(String, nullable=False)
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[dict] = mapped_column(JSON, nullable=False)
-    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Millisecond Unix epoch — see ScoreTable.created_at; needs BigInteger.
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Pinned games are exempt from stale-pruning (used for demo/seed games).
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

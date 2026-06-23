@@ -21,6 +21,9 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Docker-mapped SQLite data volume
+/data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

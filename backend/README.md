@@ -2,6 +2,37 @@
 
 FastAPI implementation of [`../openapi.yaml`](../openapi.yaml).
 
+## Docker (full app: backend + built frontend)
+
+The repo-root `Dockerfile` builds the frontend (TanStack Start SPA mode) and
+bakes the static output into a Python image that serves both the SPA and the
+`/api`. The store is **configured from outside the image** via `DATABASE_URL`
+(never baked in, no seed data), so SQLite can be swapped for Postgres without a
+rebuild.
+
+```bash
+docker compose up --build      # serves http://localhost:8000
+```
+
+`docker-compose.yml` runs a bundled **Postgres** `db` service and points the
+app at it by default (`postgresql+psycopg://…@db:5432/snake`). Config is read
+from the repo-root `.env` (copy `.env.example` to `.env` first); Postgres data
+persists in the `pgdata` volume, independent of the app container's lifecycle.
+
+To use SQLite instead — handy for a quick throwaway run — override `DATABASE_URL`
+to a file under the host-mounted `./data` volume:
+
+```bash
+DATABASE_URL=sqlite:////data/snake.db docker compose up --build
+```
+
+The store layer is database-agnostic, so only the URL changes. Plain
+`docker run` works too (no compose, no Postgres service):
+
+```bash
+docker run -p 8000:8000 -e DATABASE_URL=sqlite:////data/snake.db -v "$PWD/data:/data" snake-pass-watch:local
+```
+
 ## Storage backends
 
 The active store is chosen at startup from the `DATABASE_URL` environment

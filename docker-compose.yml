@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-snake}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-snake}
+      POSTGRES_DB: ${POSTGRES_DB:-snake}
+    ports:
+      # Exposed on the host (5433 → container 5432) so you can inspect the DB
+      # directly; 5432 is often taken by a local Postgres install.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes compose interpolation so the shell expands the container env.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    image: snake-pass-watch:local
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # Config comes from the root .env (this directory), the single source of
+    # truth for the whole stack. backend/.env is NOT used by Docker (it is
+    # excluded via .dockerignore and only applies to non-Docker local runs).
+    env_file:
+      - .env
+    environment:
+      # Fallback if .env is absent. An explicit value here also takes precedence
+      # over env_file, keeping the in-network Postgres URL the default.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://snake:snake@db:5432/snake}
+    volumes:
+      # Host-mapped storage so a SQLite database (if used instead) persists
+      # across containers. Unused when DATABASE_URL points at Postgres.
+      - ./data:/data
+
+volumes:
+  pgdata:
