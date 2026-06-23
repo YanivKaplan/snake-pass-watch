@@ -1,0 +1,78 @@
+name: CI
+
+# Pipeline: frontend + backend unit tests run in parallel, then backend
+# integration tests, then deploy. Deploy only runs on pushes to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # --- Stage 1: unit tests (frontend and backend run in parallel) ---------
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run pytest tests
+
+  # --- Stage 2: integration tests (after the unit suites pass) ------------
+  # tests_integration/conftest.py points DATABASE_URL at a throwaway SQLite
+  # file at import time and asserts the backend is SQLite, so this job must
+  # NOT set DATABASE_URL and needs no Postgres service.
+  backend-integration:
+    name: Backend integration tests
+    needs: [frontend-tests, backend-tests]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run pytest tests_integration
+
+  # --- Stage 3: deploy (only on main, after integration tests pass) -------
+  # Render has no GitHub OIDC trust to federate against, so deployment uses a
+  # deploy-hook URL (a secret, not a user/account). Set the RENDER_DEPLOY_HOOK_URL
+  # repository secret to the hook from the Render dashboard. Render then pulls
+  # the repo and rebuilds the Docker web service (see render.yaml / DEPLOY.md).
+  deploy:
+    name: Deploy to Render
+    needs: backend-integration
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl --fail --silent --show-error \
+            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
