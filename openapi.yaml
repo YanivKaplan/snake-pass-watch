@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: Snake Pass Watch — Backend API
+  version: 1.0.0
+  description: >
+    REST + SSE contract that the frontend expects from the backend.
+
+    This specification is derived from the frontend's API client, the
+    `BackendService` interface in `frontend/src/services/types.ts`. The app talks
+    to the backend exclusively through that interface (see
+    `frontend/src/services/index.ts`); the current implementation
+    (`frontend/src/services/mock.ts`) is a localStorage mock. A real backend that
+    implements the endpoints below can be dropped in by swapping the service
+    factory in `index.ts`.
+
+    Authentication is session based. `POST /auth/signup` and `POST /auth/login`
+    establish a session (returned as an HTTP-only session cookie); `POST
+    /auth/logout` clears it; `GET /auth/me` reports the current session. Endpoints
+    that mutate a user's own data require the session cookie; spectator read
+    endpoints and the auth bootstrap endpoints are public.
+
+servers:
+  - url: /api
+    description: Backend API, mounted under /api (adjust to taste).
+
+tags:
+  - name: auth
+    description: Signup, login, logout, and current-session lookup.
+  - name: scores
+    description: Score submission and leaderboards.
+  - name: active-games
+    description: Live game state for spectators, plus realtime streams.
+
+paths:
+  /auth/signup:
+    post:
+      tags: [auth]
+      summary: Create a new account and start a session
+      description: >
+        Maps to `signup(username, password)`. On success a session is created and
+        returned as a session cookie. Username comparison is case-insensitive and
+        must be unique. Validation (from the mock): username must be at least 2
+        characters (after trimming), password at least 4 characters.
+      operationId: signup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "201":
+          description: Account created; session established.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HTTP-only session cookie (e.g. `session=...; HttpOnly`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Validation failed (username too short, password too short).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Username already taken.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate and start a session
+      description: >
+        Maps to `login(username, password)`. On success a session is created and
+        returned as a session cookie. Username match is case-insensitive.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "200":
+          description: Authenticated; session established.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HTTP-only session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear the current session
+      description: >
+        Maps to `logout()`. Clears the session cookie. Idempotent.
+      operationId: logout
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: Session cleared.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Expired/cleared session cookie.
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get the currently authenticated user
+      description: >
+        Maps to `currentUser()`. Returns the user for the active session, or
+        `null` when there is no session. This endpoint does not error when
+        unauthenticated — it returns `200` with a `null` body so the client can
+        distinguish "logged out" from a transport failure.
+      operationId: currentUser
+      security:
+        - cookieAuth: []
+        - {}
+      responses:
+        "200":
+          description: The current user, or null if not authenticated.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: "null"
+
+  /scores:
+    get:
+      tags: [scores]
+      summary: Get the leaderboard for a game mode
+      description: >
+        Maps to `getLeaderboard(mode, limit?)`. Returns the best score per user
+        for the given mode, sorted by score descending, limited to `limit`
+        entries. Public.
+      operationId: getLeaderboard
+      security: []
+      parameters:
+        - name: mode
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/GameMode"
+          description: Game mode to rank.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+          description: Maximum number of entries to return (default 10).
+      responses:
+        "200":
+          description: Leaderboard entries, sorted by score descending.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScoreEntry"
+    post:
+      tags: [scores]
+      summary: Submit a score
+      description: >
+        Maps to `submitScore(mode, score)`. Records a score for the authenticated
+        user. The server sets `id`, `userId`, `username`, and `createdAt`.
+        Requires authentication.
+      operationId: submitScore
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, score]
+              properties:
+                mode:
+                  $ref: "#/components/schemas/GameMode"
+                score:
+                  type: integer
+                  minimum: 0
+      responses:
+        "201":
+          description: Score recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScoreEntry"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /active-games:
+    get:
+      tags: [active-games]
+      summary: List active games
+      description: >
+        Maps to `listActiveGames()`. Returns games that are currently in progress,
+        sorted by score descending. Stale games (not updated within ~30 seconds)
+        are pruned by the server. Public (spectator view).
+      operationId: listActiveGames
+      security: []
+      responses:
+        "200":
+          description: Active games, sorted by score descending.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveGame"
+
+  /active-games/stream:
+    get:
+      tags: [active-games]
+      summary: Subscribe to the list of active games (SSE)
+      description: >
+        Maps to `subscribeToActiveGames(cb)`. A Server-Sent Events stream that
+        emits the full active-games list whenever it changes. The client unsubscribes
+        by closing the connection. The server should emit an initial snapshot on
+        connect. Each event's `data` is a JSON array of `ActiveGame`. Public.
+      operationId: subscribeToActiveGames
+      security: []
+      responses:
+        "200":
+          description: An event stream of active-games snapshots.
+          content:
+            text/event-stream:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveGame"
+              example: |
+                data: [{"userId":"u1","username":"alice","mode":"walls","score":42,"state":{"width":20,"height":20,"snake":[[1,1]],"food":[5,5],"dir":"right","alive":true},"updatedAt":1700000000000}]
+
+  /active-games/me:
+    put:
+      tags: [active-games]
+      summary: Publish (upsert) the authenticated user's live game state
+      description: >
+        Maps to `publishGameState(state, mode, score)`. Creates or replaces the
+        authenticated user's active game entry. The server attaches `userId`,
+        `username`, and `updatedAt`. Requires authentication.
+      operationId: publishGameState
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, mode, score]
+              properties:
+                state:
+                  $ref: "#/components/schemas/GameState"
+                mode:
+                  $ref: "#/components/schemas/GameMode"
+                score:
+                  type: integer
+                  minimum: 0
+      responses:
+        "204":
+          description: Game state published.
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [active-games]
+      summary: End the authenticated user's active game
+      description: >
+        Maps to `endGame()`. Removes the authenticated user's active game entry.
+        Idempotent. Requires authentication.
+      operationId: endGame
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: Active game removed (or already absent).
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /active-games/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The id of the user whose active game to fetch.
+    get:
+      tags: [active-games]
+      summary: Get a single user's active game
+      description: >
+        Maps to `getActiveGame(userId)`. Returns the active game for the given
+        user, or `null` if they have none. Returns `200` with a `null` body
+        rather than `404` to match the client contract. Public.
+      operationId: getActiveGame
+      security: []
+      responses:
+        "200":
+          description: The user's active game, or null if none.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ActiveGame"
+                  - type: "null"
+
+  /active-games/{userId}/stream:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The id of the user whose active game to watch.
+    get:
+      tags: [active-games]
+      summary: Subscribe to a single user's active game (SSE)
+      description: >
+        Maps to `subscribeToActiveGame(userId, cb)`. A Server-Sent Events stream
+        that emits the user's active game (or `null`) whenever it changes. The
+        server should emit an initial snapshot on connect. Each event's `data` is
+        either a JSON `ActiveGame` object or `null`. Public.
+      operationId: subscribeToActiveGame
+      security: []
+      responses:
+        "200":
+          description: An event stream of the user's active-game snapshots.
+          content:
+            text/event-stream:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ActiveGame"
+                  - type: "null"
+              example: |
+                data: {"userId":"u1","username":"alice","mode":"wrap","score":7,"state":{"width":20,"height":20,"snake":[[1,1],[1,2]],"food":[9,3],"dir":"down","alive":true},"updatedAt":1700000000000}
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        Session cookie set by `/auth/login` and `/auth/signup`, cleared by
+        `/auth/logout`. HTTP-only; sent automatically by the browser.
+
+  schemas:
+    GameMode:
+      type: string
+      enum: [walls, wrap]
+      description: Snake game mode — walls (deadly edges) or wrap (toroidal edges).
+
+    Direction:
+      type: string
+      enum: [up, down, left, right]
+
+    Cell:
+      type: array
+      description: A grid coordinate as a [x, y] (column, row) tuple.
+      items:
+        type: integer
+      minItems: 2
+      maxItems: 2
+
+    User:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    ScoreEntry:
+      type: object
+      required: [id, userId, username, mode, score, createdAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        mode:
+          $ref: "#/components/schemas/GameMode"
+        score:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: integer
+          format: int64
+          description: Creation time as a Unix epoch timestamp in milliseconds.
+
+    GameState:
+      type: object
+      description: Serialized, compact snapshot of a snake game.
+      required: [width, height, snake, food, dir, alive]
+      properties:
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        snake:
+          type: array
+          description: Snake body cells, head first.
+          items:
+            $ref: "#/components/schemas/Cell"
+        food:
+          $ref: "#/components/schemas/Cell"
+        dir:
+          $ref: "#/components/schemas/Direction"
+        alive:
+          type: boolean
+
+    ActiveGame:
+      type: object
+      required: [userId, username, mode, score, state, updatedAt]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        mode:
+          $ref: "#/components/schemas/GameMode"
+        score:
+          type: integer
+          minimum: 0
+        state:
+          $ref: "#/components/schemas/GameState"
+        updatedAt:
+          type: integer
+          format: int64
+          description: Last-update time as a Unix epoch timestamp in milliseconds.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
