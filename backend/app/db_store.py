@@ -9,9 +9,12 @@ schema exists (it does not wipe data) and ``seed`` is a no-op — the database
 keeps whatever real users and games have accumulated across restarts.
 """
 
+import logging
+import time
 from typing import Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .db import ActiveGameTable, Base, ScoreTable, TokenTable, UserTable, make_engine
@@ -20,12 +23,25 @@ from .security import generate_token, hash_password
 from .store import STALE_MS, UserRecord, now_ms
 
 
+logger = logging.getLogger(__name__)
+
+
 class DbStore:
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connect_attempts: int = 30,
+        connect_interval: float = 1.0,
+    ) -> None:
         self.engine = make_engine(database_url)
         self._session_factory = sessionmaker(
             bind=self.engine, expire_on_commit=False
         )
+        # Wait for the database to accept connections before touching it. With a
+        # networked database (Postgres) the server may still be starting up when
+        # the app boots; block here instead of crashing the whole process.
+        self._wait_until_ready(connect_attempts, connect_interval)
         # Ensure the schema exists up front so the very first request works.
         self.reset()
 
@@ -33,6 +49,31 @@ class DbStore:
         return self._session_factory()
 
     # ---- lifecycle ------------------------------------------------------
+
+    def _wait_until_ready(self, attempts: int, interval: float) -> None:
+        """Poll the database until it accepts a connection (or give up).
+
+        Local SQLite is always ready on the first try; this matters for a
+        networked database that may still be starting up alongside the app.
+        """
+        last_error: Optional[OperationalError] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                with self.engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                return
+            except OperationalError as error:
+                last_error = error
+                logger.warning(
+                    "Database not ready (attempt %d/%d): %s",
+                    attempt,
+                    attempts,
+                    error.orig or error,
+                )
+                time.sleep(interval)
+        raise RuntimeError(
+            f"Database not reachable after {attempts} attempts"
+        ) from last_error
 
     def reset(self) -> None:
         """Ensure the schema exists. Non-destructive — existing rows are kept."""

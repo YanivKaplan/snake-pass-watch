@@ -80,4 +80,7 @@ def make_engine(url: str) -> Engine:
                 url, connect_args=connect_args, poolclass=StaticPool
             )
         return create_engine(url, connect_args=connect_args)
-    return create_engine(url)
+    # ``pool_pre_ping`` transparently discards connections that died while idle
+    # (e.g. the database restarted), reconnecting on the next checkout instead
+    # of surfacing a stale-connection error.
+    return create_engine(url, pool_pre_ping=True)
