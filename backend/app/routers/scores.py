@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from ..auth import get_current_user
 from ..models import Error, GameMode, ScoreEntry, SubmitScoreRequest
-from ..store import UserRecord, store
+from ..storage import UserRecord, store
 
 router = APIRouter(tags=["scores"])
 

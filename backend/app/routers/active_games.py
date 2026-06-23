@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from ..auth import get_current_user
 from ..broker import broker
 from ..models import ActiveGame, Error, PublishGameRequest
-from ..store import UserRecord, store
+from ..storage import UserRecord, store
 
 router = APIRouter(prefix="/active-games", tags=["active-games"])
 

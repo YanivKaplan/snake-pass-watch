@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .broker import broker
 from .routers import active_games, auth, scores
-from .store import store
+from .storage import store
 
 _PRUNE_INTERVAL_SECONDS = 10
 

@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request, Response, status
 
-from .store import UserRecord, store
+from .storage import UserRecord, store
 
 SESSION_COOKIE = "session"
 

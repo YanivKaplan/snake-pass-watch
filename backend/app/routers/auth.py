@@ -12,7 +12,7 @@ from ..auth import (
 )
 from ..models import AuthResponse, Credentials, Error, User
 from ..security import verify_password
-from ..store import UserRecord, store
+from ..storage import UserRecord, store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
