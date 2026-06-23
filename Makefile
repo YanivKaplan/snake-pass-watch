@@ -2,18 +2,18 @@
 
 install:
 	cd backend && uv sync
-	cd frontend && bun install
+	cd frontend && npm install
 
 backend:
 	cd backend && uv run uvicorn app.main:app --reload
 
 frontend:
-	cd frontend && bun run dev
+	cd frontend && npm run dev
 
 backend-tests:
 	cd backend && uv run pytest
 
 frontend-tests:
-	cd frontend && bun run test
+	cd frontend && npm run test
 
 test: backend-tests frontend-tests
