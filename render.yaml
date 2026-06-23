@@ -1,0 +1,30 @@
+# Render Blueprint — deploys ONLY the snake-pass-watch app (Docker web service).
+# Postgres is an EXTERNAL managed database (Aiven), wired in through the
+# DATABASE_URL env var below. No Render-managed database is provisioned, and the
+# Dockerfile / app code are untouched — all configuration is env vars.
+#
+# Deploy:  Render Dashboard -> New -> Blueprint -> pick this repo.
+# DATABASE_URL carries the DB password, so it is NOT committed here — it is set
+# in the dashboard. See DEPLOY.md.
+
+services:
+  - type: web
+    name: snake-pass-watch
+    runtime: docker
+    plan: free            # Free web service: sleeps after ~15 min idle, cold-starts.
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    # Liveness endpoint from app.main — lets Render gate traffic until boot.
+    healthCheckPath: /api/health
+    envVars:
+      # The Dockerfile CMD listens on :8000 (hardcoded). Point Render at that
+      # port instead of its default 10000 — no Dockerfile change required.
+      - key: PORT
+        value: "8000"
+
+      # External Aiven Postgres. Set manually in the dashboard (sync:false) —
+      # it contains the DB password and must not be committed. Use the psycopg
+      # v3 scheme and keep Aiven's required SSL:
+      #   postgresql+psycopg://<user>:<password>@<host>:<port>/<db>?sslmode=require
+      - key: DATABASE_URL
+        sync: false
