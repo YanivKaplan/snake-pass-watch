@@ -26,11 +26,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // non-JSON error body; fall back to statusText
     }
-    throw new Error(message);
+    const error = new Error(message) as Error & { status: number };
+    error.status = res.status;
+    throw error;
   }
 
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+// Treat a 401 as a no-op for best-effort, fire-and-forget mutations of the
+// caller's own data (publish/clear live game), matching the mock's behavior
+// when logged out. Other errors still reject.
+function ignore401(p: Promise<void>): Promise<void> {
+  return p.catch((err: Error & { status?: number }) => {
+    if (err?.status === 401) return;
+    throw err;
+  });
 }
 
 // Subscribe to a Server-Sent Events stream. Each event's `data` is JSON; the
@@ -86,14 +98,19 @@ export function createHttpService(): BackendService {
     },
 
     publishGameState(state, mode, score) {
-      return request<void>("/active-games/me", {
-        method: "PUT",
-        body: JSON.stringify({ state, mode, score }),
-      });
+      // Best-effort publish of the caller's own live game; a no-op when logged
+      // out (matches the mock), so a 401 is swallowed rather than rejected.
+      return ignore401(
+        request<void>("/active-games/me", {
+          method: "PUT",
+          body: JSON.stringify({ state, mode, score }),
+        }),
+      );
     },
 
     endGame() {
-      return request<void>("/active-games/me", { method: "DELETE" });
+      // Fire-and-forget on game over / unmount; no-op when logged out.
+      return ignore401(request<void>("/active-games/me", { method: "DELETE" }));
     },
 
     listActiveGames() {
