@@ -19,13 +19,18 @@ variable:
 
 ```bash
 uv sync
-# Persistent SQLite (creates ./snake.db):
-DATABASE_URL=sqlite:///./snake.db uv run uvicorn app.main:app --reload
-# ...or omit DATABASE_URL to run the in-memory seeded store.
+cp .env.example .env   # sets DATABASE_URL=sqlite:///./snake.db
+make backend           # uvicorn --env-file .env
 ```
 
-`make backend` runs against SQLite by default (override with
-`make backend DATABASE_URL=...`).
+`.env` is git-ignored; `.env.example` holds the default. `make backend` loads
+`DATABASE_URL` from `.env` via uvicorn's `--env-file`. Edit `.env` to point at
+another database (any SQLAlchemy URL), or comment the line out for the in-memory
+seeded store. Running uvicorn yourself works too:
+
+```bash
+DATABASE_URL=sqlite:///./snake.db uv run uvicorn app.main:app --reload
+```
 
 The API is served under `/api` (e.g. `http://127.0.0.1:8000/api/active-games`).
 Interactive docs: `http://127.0.0.1:8000/docs`.
@@ -33,8 +38,16 @@ Interactive docs: `http://127.0.0.1:8000/docs`.
 ## Test
 
 ```bash
-uv run pytest
+make backend-tests   # unit/API tests (in-memory store)
+make backend-it      # DB integration tests (temporary SQLite database)
+# or directly:
+uv run pytest               # unit/API tests (testpaths = tests/)
+uv run pytest tests_integration
 ```
+
+`tests_integration/` runs the full flows (sign up, log in, submit a score, read
+the leaderboard) end to end against a throwaway on-disk SQLite database, so it
+exercises the real SQLAlchemy backend rather than the in-memory store.
 
 ## Auth
 
@@ -78,5 +91,5 @@ app/
     scores.py        # /scores  (leaderboard + submit)
     active_games.py  # /active-games  (+ SSE streams)
 tests/               # unit/API tests (in-memory backend)
-  integration/       # DB integration tests (run with `make backend-it`)
+tests_integration/   # DB integration tests, temp SQLite (`make backend-it`)
 ```
