@@ -7,6 +7,7 @@ import { createInitialState, step, turn, type Dir, type SnakeState } from "@/gam
 import { useAuth } from "@/hooks/useAuth";
 import { backend } from "@/services";
 import type { GameMode } from "@/services/types";
+import messiToilet from "@/assets/messi-toilet.png";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -112,6 +113,11 @@ function PlayPage() {
     <div className="min-h-screen bg-background">
       <NavBar />
       <main className="mx-auto max-w-5xl px-4 py-8">
+        <img
+          src={messiToilet}
+          alt="Messi lifting a golden toilet trophy — Campeones del Mundo"
+          className="mb-8 w-full rounded-xl border border-border shadow-lg"
+        />
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Snake</h1>
