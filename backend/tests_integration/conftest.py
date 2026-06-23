@@ -28,6 +28,11 @@ from app.main import app  # noqa: E402
 from app.storage import store  # noqa: E402
 
 assert isinstance(store, DbStore), "integration tests must run against the DB backend"
+# Guard the requirement explicitly: these tests must always use SQLite, never a
+# DATABASE_URL inherited from the shell/CI (e.g. a Postgres URL).
+assert store.engine.dialect.name == "sqlite", (
+    f"integration tests must run against SQLite, got {store.engine.dialect.name}"
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
