@@ -62,17 +62,24 @@ jobs:
       - run: uv run pytest tests_integration
 
   # --- Stage 3: deploy (only on main, after integration tests pass) -------
-  # Render has no GitHub OIDC trust to federate against, so deployment uses a
-  # deploy-hook URL (a secret, not a user/account). Set the RENDER_DEPLOY_HOOK_URL
-  # repository secret to the hook from the Render dashboard. Render then pulls
-  # the repo and rebuilds the Docker web service (see render.yaml / DEPLOY.md).
+  # Render has no GitHub OIDC trust to federate against, so deployment uses the
+  # Render REST API authenticated with a Bearer API key (the RENDER_API_KEY
+  # repository secret — not a user/account). This POSTs a new deploy for the
+  # web service, which pulls the repo and rebuilds the Docker image
+  # (see render.yaml / DEPLOY.md). The service id is not secret.
   deploy:
     name: Deploy to Render
     needs: backend-integration
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      SERVICE_ID: srv-d8t8li5aeets73cja5e0 # snake-pass-watch web service
     steps:
       - name: Trigger Render deploy
         run: |
           curl --fail --silent --show-error \
-            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}' \
+            "https://api.render.com/v1/services/${SERVICE_ID}/deploys"
