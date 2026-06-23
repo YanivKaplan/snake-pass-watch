@@ -5,12 +5,15 @@ The API is mounted under ``/api`` to match the OpenAPI ``servers`` entry.
 """
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .broker import broker
@@ -18,6 +21,13 @@ from .routers import active_games, auth, scores
 from .storage import store
 
 _PRUNE_INTERVAL_SECONDS = 10
+
+# Built frontend (TanStack Start SPA shell + assets). In the Docker image these
+# live at /app/static; in local dev the directory is absent and serving is
+# skipped (the frontend runs on its own Vite dev server instead).
+STATIC_DIR = Path(
+    os.environ.get("STATIC_DIR", Path(__file__).resolve().parent.parent / "static")
+)
 
 
 async def _prune_loop() -> None:
@@ -81,3 +91,27 @@ def health() -> dict:
 app.include_router(auth.router, prefix="/api")
 app.include_router(scores.router, prefix="/api")
 app.include_router(active_games.router, prefix="/api")
+
+
+# Serve the built single-page frontend, if present. Registered last so the /api
+# routes above always take precedence. Real asset files are served directly;
+# everything else falls back to the SPA shell so client-side routing works.
+_SPA_SHELL = STATIC_DIR / "_shell.html"
+
+if _SPA_SHELL.is_file():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=STATIC_DIR / "assets"),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str) -> FileResponse:
+        # API routes are matched before this catch-all; guard so unknown /api
+        # paths still 404 as JSON rather than returning the HTML shell.
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = STATIC_DIR / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_SPA_SHELL)
